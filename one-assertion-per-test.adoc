@@ -1,0 +1,36 @@
+= One Assertion Per Test
+
+|===
+|Term               | Abbreviation
+|Subject Under Test | SUT
+|===
+
+The purpose of this document is to explore the motivations behind the rule _One Assertion Per Test_ and describe the benefits of its practice.
+
+_One Assertion Per Test_ is a rule of thumb to identify un-encapsulated, inflexible, or unnecessarily complex code within both the SUT and the test. Like every rule, this one no doubt has exceptions. It is up to the practicioner to recognize which applications of the rule are appropriate, and which are simply dogmatic. Below we explore examples of when the rule is applicable and what benefits it provides.
+
+A test with more than one assertion:
+
+1. May inadvertently test more than one aspect of the SUT
++
+Assuming the SUT is well-factored, our test case may test more than one aspect of the SUT's behavior at once. The reader is forced to pick the test apart to determine what behaviors contribute to which consequences that the test asserts on. This makes our test more difficult to understand and undermines its role as living documentation.
++
+*Summary*: The test inappropriately conflates several behaviors of the SUT.
++
+*Corollary*: A named test which fails for exactly one reason is trivial to read, comprehend, and use.
+
+2. May reflect a too-complex, poorly-factored SUT
++
+When multiple assertions are necessary to describe the behavior of the SUT, we may infer that the SUT does too much at once. Since the test struggles to isolate a single behavior of the SUT, other client code will similarly struggle to exercise that behavior. Such a SUT is inflexible and cannot be re-used.
++
+*Summary*: The SUT inappropriately conflates several responsibilities.
++
+*Corrolary*: Modules singular in purpose are simple, composable, and may be reused for new purposes.
+
+3. May itself be poorly-factored
++
+Assuming the SUT is well-factored, multiple assertions may indicate that our code needs to utilize abstractions. When multiple assertions taken together describe a higher-order concept, we should encapsulate that concept in a dedicated function. For example, an assertion that two lists are of equal length followed by an assertion that they contain equal elements at equal indices could be abstracted into a single assertion of _list equality_. Without this abstraction, the reader must deduce what the assertions mean as a whole, making the test more complex and less useful as living documentation. The test also duplicates otherwise reusable logic.
++
+*Summary*: The test confronts the reader with unnecessary details.
++
+*Corollary*: All code should utilize abstractions and encapsulation to minimize complexity.
