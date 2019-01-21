@@ -1,0 +1,149 @@
+# Branch Point Collection
+
+The Single Responsibility Principle (SRP) encourages us to write functions with one purpose and one purpose only in order to keep our code easier to maintain. Even when we earnestly pursue this goal, however, it seems like the resulting code units can still be difficult to read and modify. In this document I want to discuss a possible reason for that, and the technique I use to resolve it: "Branch-Point Collection."
+
+To begin, we will explore a symptomatic code example and identify the problem. We will then see how application of branch-point collection can simplify the code and better follow the SRP.
+
+## Example symptomatic code
+
+The below code is written in Elixir, which I will introduce to aid the unfamiliar reader. It is based on source code from Dave Thomas' https://codestool.coding-gnome.com/courses/elixir-for-programmers[_Elixir for Programmers_] online course, which is _fantastic_; other online classes pale in comparison. Give it a look!
+
+### Purpose
+
+The program plays a game of hangman, where the client tries to guess a hidden word by guessing single letters at a time. They have a limited number of guesses before they lose. If they guess the word, they win!
+
+### Responsibilities
+
+The program has the following responsibilities: (a) identify a winning move; (b) identify a losing move; (c) identify a good move; (d) identify a bad move; (e) identify a duplicate guess; and (f) reject moves on a finished game. All except the last responsiblity is met by returning a `game` map with a `:state` key set to an appropriate value.
+
+### Guided Tour
+
+[source, elixir]
+----
+defmodule Hangman do
+
+  def make_move(game = %{ game_state: state }, _guess)
+  when state in [:won, :lost] do
+    game
+  end
+
+  def make_move(game, guess) do
+    accept_move(game, guess, MapSet.member?(game.used, guess))
+  end
+
+  ...
+
+----
+
+These are the entry points into the program. The first uses pattern matching and only fires when the state of the given game is already `:won` or `:lost`, thereby satisfying requirement (f). Otherwise, the second body is executed, which checks if the current guess has already been made for the current game with `MapSet.member?` and hands that to `accept_move`, below:
+
+[source, elixir]
+----
+
+  defp accept_move(game, guess, _already_guessed = true) do
+    Map.put(game, :game_state, :already_used)
+  end
+
+  defp accept_move(game, guess, _already_guessed) do
+    Map.put(game, :used, MapSet.put(game.used, guess))
+    |> score_guess(Enum.member?(game.letters, guess))
+  end
+
+----
+
+The top function fires when the boolean argument `already_guessed` has the value `true` and indicates to the client that a duplicate guess has been made. This satisfies requirement (e). Otherwise, the second body fires, recording the new guess with `Map.put`, and then checking if the new guess is a component of the secret word with `Enum.member?`. It passes off this new information to `score_guess`, below:
+
+[source, elixir]
+----
+
+  defp score_guess(game, _good_guess = true) do
+    new_state = MapSet.new(game.letters)
+    |> MapSet.subset?(game.used)
+    |> maybe_won()
+    Map.put(game, :game_state, new_state)
+  end
+
+  defp score_guess(game = %{ turns_left: 1}, _not_good_guess) do
+    Map.put(game, :game_state, :lost)
+  end
+
+  defp score_guess(game = %{ turns_left: turns_left}, _not_good_guess) do
+    %{ game |
+       game_state: :bad_guess,
+       turns_left: turns_left - 1
+    }
+  end
+
+  defp maybe_won(true), do: :won
+  defp maybe_won(_),    do: :good_guess
+
+----
+
+In the first body of `score_guess`, which only fires if the guess is a component of the secret word, we check if the letters we have guessed so far is a superset of those in the secret word; this new information is given to `maybe_won`. That function will indicate if the game has just been won, or if merely a good guess was made; this satisfies (a) and (c).
+
+Otherwise, one of the other `score_guess` bodies will execute. One detects when we are on the last move of the game, and consequently declares the game as `lost`. The other assumes that a bad move was made. Together these satisfy the remaining requirements (b) and (d), respectively.
+
+### The Problem
+
+The major issue I had with this code is that "upstream" functions located earlier in the module are only coincidentally encapsulated from "downstream" functions lower in the module. For example, `accept_move` modifies the state of the game by adding the newly guessed letter to the list of those already guessed, and _every_ downstream function can potentially see and be impacted by this. Thankfully, however, the only function which _does_ look at that information is `accept_move` itself. This is _coincidentally encapsulated_ because when we modify upstream functions, we run the risk of impacting behavior of downstream functions. I did this several times while trying to rearrange the logic of the program.
+
+The other major issue I find with this code, which motivated my attempts to rearrange its logic, is that the function names are meaningless. The functions `accept_move` and `score_guess` say nothing about their behavior, a clear indication that their purpose is uncertain. Indeed, `score_guess` can itself identify four of our game states (win, lose, good guess, and bad guess). This made the program harder for me to wrap my mind around while working on it. The only way to know for certain how it worked was to constantly re-read it.
+
+Taken together, these issues mean its difficult for a reader to understand the program, and difficult for a maintainer to modify it correctly. That is reason enough to explore alternative structures.
+
+### Remedy With Branch-Point Collection
+
+To address thes concerns, we recognize that each of the program's requirements align with each of a Hangman game's possible states: already over, winning move, losing move, good move, bad move, or redundant move. So when a client makes a guess, we can determine which game state we should end with, and then delegate to a branch of logic which computes that state. Below, I use a case statement to do just that:
+
+[source,elixir]
+----
+  def make_move(game, guess) do
+    cond do
+      # order matters; e.g. winning move is a type of good move!
+      already_won_or_lost?(game, guess) -> already_won_or_lost(game, guess)
+      already_guessed?(game, guess)     -> already_guessed(game, guess)
+      winning_guess?(game, guess)       -> win(game, guess)
+      losing_guess?(game, guess)        -> lose(game, guess)
+      good_guess?(game, guess)          -> good_guess(game, guess)
+      bad_guess?(game, guess)           -> bad_guess(game, guess)
+    end
+  end
+----
+
+`make_move` has one clear responsibility: based on the current game state and the guess made, invoke the appropriate function to advance the game state. The responsibility of `make_move` is to _branch_ the program's logic. This is the only point in the program where the logic is allowed to branch; hence "branch-point _collection_."
+
+Each possible branch is defined by a pair of functions, one that identifies a game state, and one that advances the game state (e.g. `already_won_or_lost?` and `already_won_or_lost` without the `?`, respectively). Note that the name of each par of functions is highly descriptive. All of these functions do exactly what you would expect.
+
+Just for an example, below is the pair of functions that handle a losing guess:
+
+[source, elixir]
+----
+defp losing_guess?(game, guess) do
+  bad_guess?(game, guess) &&
+    game.turns_left == 1
+end
+
+defp lose(game, _guess) do
+  %{ game | state: :lose, turns_left: 0 }
+end
+----
+
+The role of each function is very clearly defined and well-described by the function' name. I wont show the rest of the branch pairs for brevity, and because they all share the same clarity of purpose.
+
+### Advantages And Disadvantages Of This Technique
+
+The advantages of this organization are two. The `make_move` function now summarizes the rest of the module by describing the states the game could possibly enter; all six states corresponding with (a) through (f) are clearly enumerated in one place. The function is also therefore an index on our code, allowing us to quickly jump to the exact place we need to be in order to modify or extend the module's behavior. Need to change the state of a won game? Head over to `win`. Need to change the conditions of making a bad guess? Head over to `bad_guess?`.
+
+The disadvantage I find with this technique, however, is that the clearly separated branches are more verbose. This is because the independent cases in my code are no longer implicitly sharing logic; `score_move` used to implicitly track new guesses on behalf of four different game states, but now that shared behavior is explicitly invoked in each branch. The consequence of encapsulation is increased syntax overall.
+
+## The Role of Branch-Point Collection
+
+This technique is used to encapsulate independent logical branches within a program which originate from proximate locations. We identified multiple distinct program states in the above code, wrote isolated functions to discover and handle each state, and then chose which of those states to pursue in one higher-level function. Note that as a consequence of this technique's application, we can now extract handling of each case into a completely separate module, like `WinGame` or `GoodGuess`, if we needed to. In larger applications, this ability to hide behavior in separate files is invaluable.
+
+## How to Identify Actionable Code
+
+The following symptoms may indicate a program where this technique is applicable:
+
+* Function names are not precise
+* Upstream functions perform some logic or delegate to downstream functions
+* There are multiple logical cases, but only one logical branch
