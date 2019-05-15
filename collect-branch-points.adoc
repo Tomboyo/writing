@@ -112,7 +112,7 @@ To address thes concerns, we recognize that each of the program's requirements a
 
 `make_move` has one clear responsibility: based on the current game state and the guess made, invoke the appropriate function to advance the game state. The responsibility of `make_move` is to _branch_ the program's logic. This is the only point in the program where the logic is allowed to branch; hence "branch-point _collection_."
 
-Each possible branch is defined by a pair of functions, one that identifies a game state, and one that advances the game state (e.g. `already_won_or_lost?` and `already_won_or_lost` without the `?`, respectively). Note that the name of each par of functions is highly descriptive. All of these functions do exactly what you would expect.
+Each possible branch is defined by a pair of functions, one that identifies a game state, and one that advances the game state (e.g. `already_won_or_lost?` and `already_won_or_lost` without the `?`, respectively). Note that the name of each pair of functions is highly descriptive. All of these functions do exactly what you would expect.
 
 Just for an example, below is the pair of functions that handle a losing guess:
 
@@ -134,16 +134,16 @@ The role of each function is very clearly defined and well-described by the func
 
 The advantages of this organization are two. The `make_move` function now summarizes the rest of the module by describing the states the game could possibly enter; all six states corresponding with (a) through (f) are clearly enumerated in one place. The function is also therefore an index on our code, allowing us to quickly jump to the exact place we need to be in order to modify or extend the module's behavior. Need to change the state of a won game? Head over to `win`. Need to change the conditions of making a bad guess? Head over to `bad_guess?`.
 
-The disadvantage I find with this technique, however, is that the clearly separated branches are more verbose. This is because the independent cases in my code are no longer implicitly sharing logic; `score_move` used to implicitly track new guesses on behalf of four different game states, but now that shared behavior is explicitly invoked in each branch. The consequence of encapsulation is increased syntax overall.
+The disadvantage I find with this technique, however, is that the clearly separated branches are more verbose. This is because the independent cases in my code are no longer implicitly sharing logic; `score_move` used to implicitly track new guesses on behalf of four different game states, but that shared behavior is now explicitly invoked in each branch. The consequence of encapsulation is increased syntax overall.
 
 ## The Role of Branch-Point Collection
 
-This technique is used to encapsulate independent logical branches within a program which originate from proximate locations. We identified multiple distinct program states in the above code, wrote isolated functions to discover and handle each state, and then chose which of those states to pursue in one higher-level function. Note that as a consequence of this technique's application, we can now extract handling of each case into a completely separate module, like `WinGame` or `GoodGuess`, if we needed to. In larger applications, this ability to hide behavior in separate files is invaluable.
+This technique is used to encapsulate independent logical branches within a program which originate from proximate locations. We identified multiple distinct program states in the above code, wrote isolated functions to discover and handle each state, and then chose which of those states to pursue in one higher-level function. Note that as a consequence of this technique's application, we can now extract handling of each case into a completely separate module, like `WinGame` or `GoodGuess`, if we need to. In larger applications, this ability to hide behavior in separate files is invaluable.
 
 ## How to Identify Actionable Code
 
 The following symptoms may indicate a program where this technique is applicable:
 
-* Function names are not precise
-* Upstream functions perform some logic or delegate to downstream functions
-* There are multiple logical cases, but only one logical branch
+* Function names for handling different program states are vaguely named
+* Upstream functions perform work visible to and required by downtream functions that handle mutually exclusive program states
+* Logically distinct program states are identified in turn by nested function calls instead of just one location
